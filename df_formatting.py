@@ -7,7 +7,12 @@ all_scopus = pd.read_csv('all_scopus_with_authorNum&paperLength.csv')
 
 master_df = all_scopus
 subset_df = master_df # useful for creating a subset of the data to test df formatting later on
-subset_df.drop(subset_df.columns.difference(['title', 'abstract', 'author keywords', 'cited by']), 1, inplace=True)
+
+# to-do: abstract, author keywords, index keywords, source title
+subset_df.drop(subset_df.columns.difference(['title', 'abstract', 'author keywords', 'cited by',
+                                             'year', 'funding details', 'index keywords', 'source title',
+                                             'author number', 'paper length in pages'
+                                             ]), 1, inplace=True)
 
 from rake_nltk import Rake, Metric
 
@@ -41,6 +46,7 @@ def get_all_keywords(text, word_boolean):
             all_keywords.append(tuple[1])
 
     # clean some of the keywords - don't want a single number or small/uninformative words
+    # amount goes from 200 keywords to 186 - len(df.columns) = 186, 1 column per keyword
     for word in all_keywords:
         if word.isdigit(): # remove numbers
             all_keywords.remove(word)
@@ -162,16 +168,18 @@ def top_n_author_keywords_or_phrases(author_keywords, word_boolean, n):
 
 title = subset_df['title']
 all_key_words = get_all_keywords(title, word_boolean=True)
+all_key_phrases = get_all_keywords(title, word_boolean=False)
 
-#all_key_phrases = get_all_keywords(title, word_boolean=False) # will do later
-
-# test a small subset of ideal dataframe, with 9 words
-all_key_words_subset = all_key_words[0:9] # slice of first 9 words
-subset_df_lenSubset = subset_df[0:9] # resize the df to match our test slice
+# test a subset of ideal dataframe, with 100 words
+all_key_words_subset = all_key_words[0:500] # slice of first 100 words
+all_key_phrases_subset = all_key_phrases[0:500] # slice of first 100 phrases
+all_key_data_subset = all_key_words_subset + all_key_phrases
+subset_df_lenSubset = subset_df[0:1000] # resize the df to match our test slice
 
 words_found = []
 # look at all titles for each word for all words
-for word in all_key_words_subset:
+
+for word in all_key_data_subset:
     for row in subset_df_lenSubset['title']:
         if word.lower() in row.lower(): # similar to Java ignoreCase(), works for our purposes
             words_found.append(1)
@@ -179,19 +187,58 @@ for word in all_key_words_subset:
             words_found.append(0)
 
 master_list = []
-# simple enough to programmatically change, 81 -> len(data size) and 9 -> factor of data size (have to find equal groups)
-for i in range(0, 81):
+# simple enough to programmatically change, 1000^2 -> len(data size) and 1000 -> factor of data size (have to find equal groups)
+for i in range(0, 1000000):
     # put every batch of n words together
-    if i % 9 == 0:
-        list = words_found[i:i+9]
+    if i % 1000 == 0:
+        list = words_found[i:i+1000]
         master_list.append(list)
+
+# check if at least one keyword match occurs in each list
+empty_list_count = 0
+empty_elements = []
+for element in master_list:
+    if 1 not in element:
+        empty_elements.append(element)
+        empty_list_count += 1
+print('Empty list count', empty_list_count)
+
+# ensure that each element in the master list has one match; else, remove them
+for empty_element in empty_elements:
+    master_list.remove(empty_element)
 
 print(master_list)
 
 pd.set_option('display.max_columns', None)
 
-for i in range(len(subset_df_lenSubset)): # for every element in the df
+for i in range(len(subset_df_lenSubset)-len(empty_elements)): # for every element in the df - the empty elements being removed
     # the df adds a new column as pointed to by keyword, then adds a column body from word batches earlier
-    subset_df_lenSubset[all_key_words_subset[i]] = master_list[i]
+    subset_df_lenSubset[all_key_data_subset[i]] = master_list[i]
+
+# add boolean columns that are not keyword columns (e.g. NIH funding)
+
+funding_details = subset_df['funding details']
+funding_details = funding_details[0:1000]
+funding_details_bool_array = []
+
+for detail in funding_details:
+    # check if object is a string
+    # https: // stackoverflow.com / questions / 1303243 / how - to - find - out - if -a - python - object - is -a - string
+    if isinstance(detail, str): # if the line is a string
+        funding_details_bool_array.append(1)
+    else:
+        funding_details_bool_array.append(0)
+
+subset_df_lenSubset['paper funding boolean'] = funding_details_bool_array
+
+# add non-boolean columns (e.g. year)
+year = subset_df['year']
+subset_df_lenSubset['year published'] = year[0:1000]
+
+author_number = subset_df['author number']
+subset_df_lenSubset['total author number'] = author_number[0:1000]
+
+page_count = subset_df_lenSubset['paper length in pages']
+subset_df_lenSubset['page count'] = page_count[0:1000]
 
 print(subset_df_lenSubset)
