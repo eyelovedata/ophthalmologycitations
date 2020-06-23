@@ -242,3 +242,41 @@ page_count = subset_df_lenSubset['paper length in pages']
 subset_df_lenSubset['page count'] = page_count[0:1000]
 
 print(subset_df_lenSubset)
+
+# test out variance threshold
+from sklearn.feature_selection import VarianceThreshold
+import numpy as np
+
+selector = VarianceThreshold(.99 * (1 - .99)) # 99% non-zero
+
+# create a fork of the variable to experiment with non-zero variance
+
+# https://stackoverflow.com/questions/34923728/type-error-unhashable-type-list-while-selecting-subset-from-specific-columns
+# need to coerce the list to tuple so that pandas can hash the subset
+# https://stackoverflow.com/questions/19371358/python-typeerror-unhashable-type-list
+
+dfmedswide = subset_df_lenSubset
+dfmedswide.drop(dfmedswide.columns.difference(tuple(all_key_data_subset)), 1, inplace=True)
+
+selector.fit_transform(np.array(dfmedswide)).shape
+
+def variance_threshold_selector(data, threshold=0.5):
+    selector = VarianceThreshold(threshold)
+    selector.fit(data)
+    return data[data.columns[selector.get_support(indices=True)]]
+
+dfmedsfiltered_99_percent = variance_threshold_selector(dfmedswide, .99 * (1 - .99))
+dfmedsfiltered_97_percent = variance_threshold_selector(dfmedswide, .97 * (1 - .97))
+dfmedsfiltered_95_percent = variance_threshold_selector(dfmedswide, .95 * (1 - .95))
+
+# For setting threshold for Boolean variables:
+# if you want to remove variables which are 0 or 1 for more than 99% of observations,
+# threshold=0.99*(1-0.99) assuming it’s a Bernoulli random variable
+
+# without filter: ~810 keyword columns
+# with 99% filter: ~80
+# with 97% filter: 22
+# with 95% filter: 7
+print(dfmedsfiltered_99_percent)
+print(dfmedsfiltered_97_percent)
+print(dfmedsfiltered_95_percent)
