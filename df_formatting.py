@@ -174,6 +174,11 @@ title = subset_df['title']
 all_key_words = get_all_keywords(title, word_boolean=True)
 all_key_phrases = get_all_keywords(title, word_boolean=False)
 
+# similarly, add abstract
+abstract = subset_df['abstract']
+abstract_key_words = get_all_keywords(abstract, word_boolean=True)
+abstract_key_phrases = get_all_keywords(abstract, word_boolean=False)
+
 # also add author and index keywords as their own boolean columns
 author_keywords = subset_df['author keywords']
 index_keywords = subset_df['index keywords']
@@ -187,17 +192,21 @@ top_ten_index_keywords = top_n_author_keywords_or_phrases(keyword_text=index_key
 top_ten_author_and_index_keywords = top_ten_author_keywords + top_ten_index_keywords
 
 max_index = 100
-total_index = 200
 
-# test a subset of ideal dataframe, with 100 words
+# test a subset of ideal dataframe, with 200 for title words & phrases, then 200 for abstract words/phrases
 all_key_words_subset = all_key_words[0:max_index] # slice of first 100 words
 all_key_phrases_subset = all_key_phrases[0:max_index] # slice of first 100 phrases
 
-# add together all data - title, abstract, keywords
-all_key_data_subset = all_key_words_subset + all_key_phrases_subset + top_ten_author_and_index_keywords
+abstract_words_subset = abstract_key_words[0:max_index]
+abstract_phrases_subset = abstract_key_phrases[0:max_index]
 
-total_index = total_index + n1 + n2 # necessary to add together len of df before assigning it in slice notation
-subset_df_lenSubset = subset_df[0:total_index] # resize the df to match our test slice, and add top 10 author/index keywords
+# add together all data - title, abstract, keywords
+all_key_data_subset = all_key_words_subset + all_key_phrases_subset + abstract_words_subset \
+                      + abstract_phrases_subset + top_ten_author_and_index_keywords
+
+# total_index = 420 = 200 * 2 + 10 * 2
+total_index = max_index * 4 + n1 + n2 # 200 words and phrases from 2 sets of data each, plus 20 top 10 keywords
+subset_df_lenSubset = subset_df[0:total_index] # resize the df to match test slice, and add top 10 author/index keywords
 
 words_found = []
 
@@ -289,9 +298,9 @@ dfmedsfiltered_95_percent = variance_threshold_selector(wide, .95 * (1 - .95))
 # if you want to remove variables which are 0 or 1 for more than 99% of observations,
 # threshold=0.99*(1-0.99) assuming it’s a Bernoulli random variable
 
-# without filter: 215 keyword columns
-# with 99% filter: 47
-# with 97% filter: 19
+# without filter: 390 keyword columns
+# with 99% filter: 50
+# with 97% filter: 16
 # with 95% filter: 8
 print(dfmedsfiltered_99_percent)
 print(dfmedsfiltered_97_percent)
