@@ -1,43 +1,70 @@
-# use CSV with no NaN values to plot a multiple linear regression in R
-# the CSV was generated from df.drop(df.columns.difference()), then df.to_csv in Python
+# 7/1/20
 
 setwd('C:\\Users\\veena\\Downloads')
+df95_csv <- read.csv('df95_percent_withTC.csv')
 
-all_scopus_droppedNaN <- read.csv('all_scopus_droppedNaN.csv')
+library(dplyr)
+# split data with dplyr
+# https://stackoverflow.com/questions/17200114/how-to-split-data-into-training-testing-sets-using-sample-function
 
-# independent variables
-author_number <- all_scopus_droppedNaN$author.number
-num_author_keywords <- all_scopus_droppedNaN$number.of.author.keywords
-num_index_keywords <- all_scopus_droppedNaN$number.of.index.keywords
+df95_csv$id <- 1:nrow(df95_csv)
+train <- df95_csv %>% dplyr::sample_frac(.80)
+total_test <- dplyr::anti_join(df95_csv, train, by = 'id')
 
-# dependent variable - times cited
-times_cited <- all_scopus_droppedNaN$cited.by
+dev <- total_test %>% dplyr::sample_frac(.50) # 50% of the remaining 20% - 10% overall
+test <- dplyr::anti_join(total_test, dev, by = 'id')
 
-multiple_linReg_fit <- lm(times_cited ~ author_number + num_author_keywords + num_index_keywords,
-                          data = all_scopus_droppedNaN)
+print(train)
+print(total_test)
 
-summary(multiple_linReg_fit)
+train_tc <- train$times.cited
+fit <- lm(train_tc ~ . - train$X - train$id, data=train)
+summary(fit)
+#plot(fit)
 
-plot(multiple_linReg_fit)
-abline(multiple_linReg_fit, col='blue')
-rsq_multiple_linReg <- summary(multiple_linReg_fit)$r.squared
-rsq_multiple_linReg # 0.0062
+# convert all dataFrame columns into factors
+# except TC, X (which is id but zero-indexed) and id
+# https://stackoverflow.com/questions/2851015/convert-data-frame-columns-from-factors-to-characters
 
-# skip c - c is a reserved constant in R
-nonlinReg <- nls(times_cited ~ author_number*a +
-                 num_author_keywords*b + num_index_keywords*d, 
-                 data = all_scopus_droppedNaN)
+train %>% mutate_if(is.integer, as.factor) -> train
 
-summary(nonlinReg)
+train$X <- as.integer(train$X)
+train$id <- as.integer(train$id)
+train$times.cited <- as.integer(train$times.cited)
 
-all_predictor_variables <- author_number + num_author_keywords + num_index_keywords
+# use class instead of typeof()
+# https://stackoverflow.com/questions/35689019/typeof-returns-integer-for-something-that-is-clearly-a-factor
+class(train$times.cited) # integer
+class(train$child) # factor
 
-plot(all_predictor_variables, times_cited)
-lines(all_predictor_variables, predict(nonlinReg), col='blue')
+library(glmnet)
 
-plot(all_predictor_variables[which(times_cited < 350)], times_cited[which(times_cited < 350)])
-plot.window(xlim=c(0, 150), ylim=c(0, 350))
-lines(all_predictor_variables, predict(nonlinReg), col='blue')
+model <- model.matrix(~ ., data=train)
 
-coefficients(nonlinReg)
-confint(nonlinReg, level=0.95)
+# get rid of row amount mismatches with NaN removal
+# https://stackoverflow.com/questions/22016166/remove-or-find-nan-in-r/22016243
+train_tc <- na.omit(train_tc)
+
+# glmnet expects a matrix for x
+# https://stackoverflow.com/questions/8457624/r-glmnet-list-object-cannot-be-coerced-to-type-double
+glm_fit_train <- cv.glmnet(model, train_tc, alpha=1)
+
+plot(glm_fit_train)
+
+bestlam = glm_fit_train$lambda.min
+bestlam
+
+i <- which(glm_fit_train$lambda == glm_fit_train$lambda.min)
+
+mse.min <- glm_fit_train$cvm[i]
+mse.min
+
+coef(glmnet(model, train_tc, alpha=1, lambda=bestlam))
+
+# run predictions on the test set
+testpred = predict(glm_fit_train, newx = model, s=bestlam)
+
+# without squaring, the absolute value error is 3.27 * 10^190
+# R simply gives infinity for the MSE^2, but the code structure works out
+test_mse <- mean((train_tc - exp(testpred))^2)
+test_mse
