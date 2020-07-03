@@ -1,3 +1,5 @@
+# 7/1/20
+
 setwd('C:\\Users\\veena\\Downloads')
 df95_csv <- read.csv('df95_percent_withTC.csv')
 
@@ -29,6 +31,10 @@ train %>% mutate_if(is.integer, as.factor) -> train
 train$X <- as.integer(train$X)
 train$id <- as.integer(train$id)
 train$times.cited <- as.integer(train$times.cited)
+
+dev$X <- as.integer(dev$X)
+dev$id <- as.integer(dev$id)
+dev$times.cited <- as.integer(dev$times.cited)
 
 # use class instead of typeof()
 # https://stackoverflow.com/questions/35689019/typeof-returns-integer-for-something-that-is-clearly-a-factor
@@ -75,6 +81,7 @@ mse.min.dev
 coef(glmnet(model, train_tc, alpha=1, lambda=bestlam))
 
 coef(glmnet(model_dev_test, dev_tc, alpha=1, lambda=bestlam_dev))
+
 # run predictions on the dev test set
 testpred = predict(glm_fit_dev, newx = model_dev_test, s=bestlam_dev)
 
@@ -82,3 +89,34 @@ testpred = predict(glm_fit_dev, newx = model_dev_test, s=bestlam_dev)
 # R simply gives infinity for the MSE^2, but the code structure works out
 dev_mse <- mean((dev_tc - exp(testpred))^2)
 dev_mse
+
+# logistic regression
+train_tc_boolean <- train_tc > quantile(train_tc, c(0.75))
+train_tc_boolean
+
+train_tc_num_boolean <- as.numeric(train_tc_boolean)
+train_tc_num_boolean
+
+# same process for dev set
+dev_tc_num_boolean <- as.numeric(dev_tc > quantile(dev_tc, c(0.75)))
+
+logistic_glm <- cv.glmnet(model, train_tc_num_boolean, alpha=1, family='binomial')
+plot(logistic_glm)
+
+logistic_glm_dev <- cv.glmnet(model_dev_test, dev_tc_num_boolean, alpha=1, family='binomial')
+
+logistic_bestlam <- logistic_glm$lambda.min
+logistic_bestlam
+
+i_logistic <- which(logistic_glm$lambda == logistic_glm$lambda.min)
+
+logistic_mse_min <- glm_fit_dev$cvm[i]
+logistic_mse_min
+
+coef(glmnet(model, train_tc_num_boolean, alpha=1, lambda=logistic_bestlam))
+
+# run predictions on the dev test set
+testpred_dev = predict(logistic_glm_dev, newx=model_dev_test, s=logistic_bestlam)
+
+logistic_mse_dev <- mean((dev_tc_num_boolean - exp(testpred_dev))^2)
+logistic_mse_dev
