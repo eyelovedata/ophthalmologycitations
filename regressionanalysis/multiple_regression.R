@@ -31,7 +31,7 @@ library(glmnet)
 
 # glmnet requires a matrix input for x
 # these models work for both linear and logistic regressions
-model <- model.matrix(~ ., data=train)
+model_train <- model.matrix(~ ., data=train)
 model_dev_test <- model.matrix(~ ., data=dev)
 model_final_test <- model.matrix(~ ., data=test)
 
@@ -78,72 +78,52 @@ lin_reg <- function(lin_model, tc_set, dev_bool) {
 
 # plot.matrix docs - https://cran.r-project.org/web/packages/plot.matrix/vignettes/plot.matrix.html
 library(plot.matrix) # visualization of importance of each word
-library(verification) # ROC
 library(ggplot2)
 library(pROC) # ROC
 
 # ROC curve reference
 # https://www.kaggle.com/captcalculator/logistic-regression-and-roc-curve-primer#The-ROC-Curve
 
-log_reg <- function(train_model, test_model, tc_set) { # use train and test in one function
-  
-  model_df <- as.data.frame(train_model) # all factors, including x, id
-  print(model_df)
-  model_df_logistic <- model_df[3:10] # all logistic factors
-  
-  # remove factors with all zero - https://stackoverflow.com/questions/6632018/delete-all-columns-with-0-from-matrix
-  model_df_logistic <- model_df_logistic[,colSums(model_df_logistic^2) !=0]
-  print(model_df_logistic)
-  
-  model_tc <- model_df$times.cited # train set
-  
-  log_model_df <- as.data.frame(test_model) # test set
-  log_model_tc <- log_model_df$times.cited
-  
-  # loop through colnames - https://stackoverflow.com/questions/49889403/loop-through-dataframe-column-names-r
-  for (i in colnames(model_df_logistic)) {
-    logit_fit <- glm(model_df_logistic[[i]] ~ model_tc, data=model_df_logistic) # create glm model for 0s and 1s graphs
-    newdat <- data.frame(model_tc=seq(min(model_tc), max(model_tc), len=length(model_tc)))
-    newdat$logistic <- predict(logit_fit, newdat, type='response')
-    
-    plot(model_tc, model_df_logistic[[i]], xlab='times cited', ylab=i, pch=16) # i = colname
-    lines(model_df_logistic[[i]] ~ model_tc, data=newdat, col='green')
-  }
+log_reg <- function(train_model, test_model, train_tc_set, test_tc_set) { # use train and test in one function
   
   # logistic regression needs booleans - 1 if > 75th percentile, else 0
-  tc_set_boolean <- tc_set > quantile(tc_set, c(0.75))
+  train_tc_set_boolean <- train_tc_set > quantile(train_tc_set, c(0.75))
   
   # convert TRUE/FALSE to 1/0
-  tc_set_numerical_boolean <- as.numeric(tc_set_boolean)
+  train_tc_set_numerical_boolean <- as.numeric(train_tc_set_boolean)
   
   # create glm with cross validation
-  glm_fit_log <- cv.glmnet(test_model, tc_set_numerical_boolean, alpha=1, family='binomial')
+  glm_fit_log <- cv.glmnet(train_model, train_tc_set_numerical_boolean, alpha=1, family='binomial')
+  print(summary(glm_fit_log))
   
   bestlam = glm_fit_log$lambda.min
-  bestlam
+  
+  test_tc_set_boolean <- test_tc_set > quantile(test_tc_set, c(0.75))
+  test_tc_set_numerical_boolean <- as.numeric(test_tc_set_boolean)
+  
+  print('actual')
+  print(test_tc_set_numerical_boolean) # actual
+  print(length(test_tc_set_numerical_boolean))
   
   test_pred = predict(glm_fit_log, newx = test_model, s=bestlam)
-  print(test_pred)
-    
-  # if test_pred < 0, the word is not apparent, bool = 0
-  # if test_pred > 0, the word is present, bool = 1
-    
-  test_pred_numerical_boolean <- sign(test_pred)
-  test_pred_numerical_boolean[test_pred_numerical_boolean < 0] <- 0
-    
-  print(test_pred_numerical_boolean) # predictions
-  print(tc_set_numerical_boolean) # actual data
-    
+  
+  test_pred_set_boolean <- test_pred > quantile(test_pred, c(0.75))
+  test_pred_set_numerical_boolean <- as.numeric(test_pred_set_boolean) 
+  
+  print('predicted')
+  print(test_pred_set_numerical_boolean) # predicted
+  print(length(test_pred_set_numerical_boolean))
+  
   # ROC finds validity of predictions
-  roc.plot(tc_set_numerical_boolean, test_pred_numerical_boolean,
-          threshold = seq(0, max(test_pred_numerical_boolean), 0.01),
-  plot.thres = c(0.03, 0.05))
-    
-  # another ROC - https://blog.revolutionanalytics.com/2016/08/roc-curves-in-two-lines-of-code.html
-  plot(roc(tc_set_numerical_boolean, test_pred_numerical_boolean, direction='<',
-          col='blue', lwd=3))
-    
+  
+  if (isTRUE(all.equal(length(test_tc_set_numerical_boolean), length(test_pred_set_numerical_boolean)))) {
+  roc.plot(test_tc_set_numerical_boolean, test_pred_set_numerical_boolean,
+          threshold = seq(0, max(test_pred_set_numerical_boolean), 0.01))
+  }
+  else {
+    print('Lengths of test TC and predicted test TC are not equal')
+  }
 }
 
-log_reg(model, model_dev_test, dev_tc)
-log_reg(model, model_final_test, test_tc)
+log_reg(model_train, model_dev_test, train_tc, dev_tc)
+log_reg(model_train, model_final_test, train_tc, test_tc)
