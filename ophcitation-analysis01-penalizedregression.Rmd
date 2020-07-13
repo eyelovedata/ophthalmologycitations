@@ -1,0 +1,117 @@
+---
+title: "ophcitation-analysis01-penalizedregression"
+author: "Sophia Wang"
+date: "July 13, 2020"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Data Cleanup 
+```{r}
+library(tidyverse)
+```
+
+
+```{r}
+df <- read.csv('dfscopus-2.csv')
+```
+Note to self. Do not try to doubleclick on the df and open it in R (takes forever to load)
+
+Remove variables we won't use or those that are redundant 
+```{r}
+df <-select(df, -index, -authorlist, -authoridlist, -access.type)
+```
+
+filter out missing values in tc - turns out there;s 2196 rows of missing values 
+Create Boolean TC varaible 
+```{r}
+df<-filter(df, !is.na(tc))
+```
+
+```{r}
+quantile(df$tc, c(0.75))
+```
+```{r}
+df$tcB<-ifelse(df$tc>=20, 1, 0)
+```
+
+
+Check what other columns have missing values - these are going to give us problems in the glmnet 
+Turns out that many of the ik_ and ak_ columns have missing values, I wonder why? 
+I'm going to fill na pagecount with 1 (presume one page)
+then fill na the others with 0 (presume those keywords did not appear for those papers)
+```{r}
+colnames(df)[colSums(is.na(df)) > 0]
+```
+
+```{r}
+df$pagecount=replace_na(df$pagecount, 1)
+```
+
+```{r}
+df[is.na(df)] = 0
+```
+
+
+```{r}
+glimpse(df)
+```
+
+Train/dev/test/split 
+
+```{r}
+df_train<-filter(df, split==0)
+df_dev<-filter(df,split==1)
+```
+
+
+#Logistic Regression  with LASSO penalization with cv.glmnet 
+
+```{r}
+library(glmnet)
+```
+Model - takes some time to fit - maybe 10 minutes on my machine 
+```{r}
+set.seed(1)
+model<-model.matrix(~ ., data=select(df_train, -tc, -tcB, -pagecount, -split)) #don't forget to remove variables you don't want to regress on 
+fit=cv.glmnet(x=model, y=df_train$tcB, alpha=1, family='binomial')
+plot(fit)
+
+```
+See what the best lambda is and what are the important variables 
+```{r}
+bestlam=fit$lambda.min
+bestlam
+coef(glmnet(model, df_train$tcB, alpha=1, lambda=bestlam))
+```
+```{r}
+testpred=predict(fit, newx = model.matrix(tcB ~ . -pagecount -tc -split, data=df_dev), s=bestlam, type="response")
+
+```
+
+# Make Plots 
+```{r}
+library(pROC)
+```
+
+```{r}
+ROC1 <- roc(df_dev$tcB, testpred, ci=TRUE, ci.alpha=0.95, plot=TRUE, print.auc=TRUE, legacy.axes=TRUE)
+sens.ci <- ci.se(ROC1)
+plot(sens.ci, type="shape", col="lightblue")
+```
+
+
+```{r}
+AUC1 <- auc(ROC1)
+AUC1
+```
+```{r}
+library(precrec)
+```
+```{r}
+precrec_obj <- evalmod(scores = testpred, labels = df_dev$tcB)
+autoplot(precrec_obj) 
+```
