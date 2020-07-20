@@ -1,4 +1,4 @@
-setwd('C:\\Users\\veena\\Downloads\\ophthalmologycitations-master')
+setwd('C:\\Users\\ynkar\\Desktop\\ophthalmology\\ophthalmologycitations-master')
 df_scopus_csv <- read.csv('dfscopus-2.csv')
 
 # df cleanup from rmd file
@@ -6,7 +6,7 @@ library(tidyverse)
 df_scopus_csv <-select(df_scopus_csv, -index, -authorlist, -authoridlist, -access.type)
 df_scopus_csv <-filter(df_scopus_csv, !is.na(tc))
 
-quantile(df_scopus_csv$tc, c(0.75))
+quantile(df_scopus_csv$tc, c(0.75)) # 20
 df_scopus_csv$tcB<-ifelse(df_scopus_csv$tc>=20, 1, 0)
 
 colnames(df_scopus_csv)[colSums(is.na(df_scopus_csv)) > 0]
@@ -30,18 +30,24 @@ LogLossBinary = function(actual, predicted, eps = 1e-15) {
 
 library(caret)
 library(e1071)
+library(pROC)
+
+# define number of trees - keep consistent with train and dev/test
+num_trees_var <- 100
 
 # train with train set
-cv.gbmModel = gbm(formula = df_train$tcB ~ . - df_train$tc - df_train$split - df_train$pagecount, data = df_train,
+cv.gbmModel = gbm(tcB ~ ., data=select(df_train, -tc, -split, -pagecount), 
                   distribution = "bernoulli",
-                  n.trees = 100,
-                  shrinkage = .01,
-                  n.minobsinnode = 20,
+                  n.trees = num_trees_var,
+                  shrinkage = .001,
+                  n.minobsinnode = 10,
                   cv.folds = 10)
+
+print(cv.gbmModel)
 
 # functional approach to dev and test set
 test_preds_with_gbm <- function(gbm_data, num_trees) {
-  cv.gbm_predictions <- predict(object = cv.gbmModel,
+  cv.gbm_predictions <- predict.gbm(object = cv.gbmModel,
                                 newdata = gbm_data,
                                 n.trees = num_trees,
                                 type = 'response')
@@ -49,14 +55,28 @@ test_preds_with_gbm <- function(gbm_data, num_trees) {
   print(LogLossBinary(gbm_data$tcB, cv.gbm_predictions))
   print(data.frame('Actual' = gbm_data$tcB, 'Predicted' = cv.gbm_predictions))
   
-  cv.ifelse_preds <- ifelse(cv.gbm_predictions > 0.5, 1, 0)
+  cv.ifelse_preds <- ifelse(cv.gbm_predictions > mean(cv.gbm_predictions), 1, 0)
+  cv.ifelse_preds_factor <- as.factor(cv.ifelse_preds)
   
   best_tree_for_prediction <- gbm.perf(cv.gbmModel)
   
+  print(table(gbm_data$tcB))
+  print(table(cv.ifelse_preds))
+  
+  roc_graph <- roc(gbm_data$tcB, cv.ifelse_preds, 
+                   ci=TRUE, ci.alpha=0.95, plot=TRUE, 
+                   print.auc=TRUE, legacy.axes=TRUE)
+  
+  sens.ci <- ci.se(roc_graph)
+  plot(sens.ci, type="shape", col="lightblue")
+  
+  auc_val <- auc(roc_graph)
+  print(auc_val)
+  
   # https://stackoverflow.com/questions/38829646/confusion-matrix-of-bsttree-predictions-error-the-data-must-contain-some-leve
-  cm = confusionMatrix(as.factor(gbm_data$tcB), as.factor(cv.ifelse_preds))
+  cm = confusionMatrix(as.factor(gbm_data$tcB), as.factor(cv.ifelse_preds_factor))
   print(cm)
 }
 
-test_preds_with_gbm(df_dev, 100)
-test_preds_with_gbm(df_test, 100)
+test_preds_with_gbm(df_dev, num_trees_var)
+#test_preds_with_gbm(df_test, num_trees_var)
