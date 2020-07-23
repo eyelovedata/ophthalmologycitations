@@ -33,38 +33,62 @@ library(e1071)
 library(pROC)
 
 # define number of trees - keep consistent with train and dev/test
-num_trees_var <- 100
+num_trees_var <- 150
 
 # train with train set
-cv.gbmModel = gbm(tcB ~ ., data=select(df_train, -tc, -split, -pagecount), 
-                  distribution = "bernoulli",
-                  n.trees = num_trees_var,
-                  shrinkage = .001,
-                  n.minobsinnode = 10,
-                  cv.folds = 10)
+# use caret library to create trmodel, then caret train() function
+fit_control <- caret::trainControl(## 10-fold cv
+  method = 'repeatedcv',
+  number = 10,
+  repeats = 10,
+  selectionFunction = 'best',
+  savePredictions = TRUE)
 
-print(cv.gbmModel)
+set.seed(1) # set seed for consistency
+caret_gbm_fit <- caret::train(as.factor(tcB) ~ . -tc -split -pagecount,
+                              data = df_train,
+                              method = 'gbm',
+                              distribution = 'bernoulli',
+                              trControl = fit_control,
+                              # gbm passes this parameter
+                              verbose = FALSE)
+
+# use caret_gbm_fit final values to create the optimal train gbm model
+optimal_gbm_train_model <- gbm(tcB ~ ., 
+                              data=select(df_train, -tc, -split, -pagecount),
+                              distribution = "bernoulli",
+                              n.trees = num_trees_var,
+                              shrinkage = .1,
+                          	  n.minobsinnode = 10,
+                              interaction.depth = 2,
+                              cv.folds = 10)
+
+print(caret_gbm_fit)
+plot(caret_gbm_fit)
+
+print(optimal_gbm_train_model)
 
 # functional approach to dev and test set
 test_preds_with_gbm <- function(gbm_data, num_trees) {
-  cv.gbm_predictions <- predict.gbm(object = cv.gbmModel,
-                                newdata = gbm_data,
-                                n.trees = num_trees,
-                                type = 'response')
+  cv.gbm_predictions <- predict.gbm(object = optimal_gbm_train_model,
+                                    newdata = gbm_data,
+                                    n.trees = num_trees,
+                                    type = 'response')
   
   print(LogLossBinary(gbm_data$tcB, cv.gbm_predictions))
   print(data.frame('Actual' = gbm_data$tcB, 'Predicted' = cv.gbm_predictions))
   
-  cv.ifelse_preds <- ifelse(cv.gbm_predictions > mean(cv.gbm_predictions), 1, 0)
-  cv.ifelse_preds_factor <- as.factor(cv.ifelse_preds)
+  best_tree_for_prediction <- gbm.perf(optimal_gbm_train_model, method='cv')
+  print(best_tree_for_prediction)
+  summary(optimal_gbm_train_model)
   
-  best_tree_for_prediction <- gbm.perf(cv.gbmModel)
+  cv.ifelse_preds <- ifelse(cv.gbm_predictions > mean(cv.gbm_predictions), 1, 0)
   
   print(table(gbm_data$tcB))
-  print(table(cv.ifelse_preds))
+  print(table(cv.if_else_preds))
   
-  roc_graph <- roc(gbm_data$tcB, cv.ifelse_preds, 
-                   ci=TRUE, ci.alpha=0.95, plot=TRUE, 
+  roc_graph <- roc(gbm_data$tcB, cv.gbm_predictions,
+                   ci=TRUE, ci.alpha=0.95, plot=TRUE,
                    print.auc=TRUE, legacy.axes=TRUE)
   
   sens.ci <- ci.se(roc_graph)
@@ -72,10 +96,6 @@ test_preds_with_gbm <- function(gbm_data, num_trees) {
   
   auc_val <- auc(roc_graph)
   print(auc_val)
-  
-  # https://stackoverflow.com/questions/38829646/confusion-matrix-of-bsttree-predictions-error-the-data-must-contain-some-leve
-  cm = confusionMatrix(as.factor(gbm_data$tcB), as.factor(cv.ifelse_preds_factor))
-  print(cm)
 }
 
 test_preds_with_gbm(df_dev, num_trees_var)
