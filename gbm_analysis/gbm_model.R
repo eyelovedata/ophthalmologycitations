@@ -1,4 +1,4 @@
-setwd('C:\\Users\\veena\\Desktop\\ophthalmologycitations-master\\ophthalmologycitations-master')
+setwd('C:\\Users\\ynkar\\Desktop\\ophthalmology')
 df_scopus_csv <- read.csv('dfscopus-2_with_nlp_title_and_abstract.csv')
 
 # df cleanup from rmd file
@@ -38,9 +38,9 @@ num_trees_var <- 300
 
 # create a tuneGrid to provide vectors to caret trainControl()
 gbmGrid <- expand.grid(interaction.depth = c(1, 2, 3, 4, 5, 6, 7, 8),
-                        n.trees = seq(50, 500, 50),
-                        shrinkage = seq(.001, .1, .01),
-                        n.minobsinnode = c(10))
+                       n.trees = seq(50, 500, 50),
+                       shrinkage = seq(.001, .1, .01),
+                       n.minobsinnode = c(10))
 
 # train with train set
 # use caret library to create trmodel, then caret train() function
@@ -53,23 +53,37 @@ fit_control <- caret::trainControl(## 10-fold cv
 
 #set.seed(1) # set seed for consistency
 #caret_gbm_fit <- caret::train(as.factor(tcB) ~ . -tc -split -pagecount,
- #                             data = df_train,
-  #                            method = 'gbm',
-   #                           distribution = 'bernoulli',
-    #                          trControl = fit_control,
-     #                         tuneGrid = gbmGrid,
-                              # gbm passes this parameter
-      #                        verbose = FALSE)
+#                             data = df_train,
+#                            method = 'gbm',
+#                           distribution = 'bernoulli',
+#                          trControl = fit_control,
+#                         tuneGrid = gbmGrid,
+# gbm passes this parameter
+#                        verbose = FALSE)
 
 # use caret_gbm_fit final values to create the optimal train gbm model
 optimal_gbm_train_model <- gbm(tcB ~ ., 
                                data=select(df_train, -tc, -split, -pagecount),
                                distribution = "bernoulli",
-                               n.trees = num_trees_var,
+                               n.trees = 300,
                                shrinkage = 0.031,
                                n.minobsinnode = 10,
                                interaction.depth = 4,
                                cv.folds = 10)
+
+gbm_model_after_training <- train(tcB ~ ., 
+                                  data = select(df_train, -tc, -split, -pagecount),
+                                  distribution = 'bernoulli',
+                                  n.trees = 300,
+                                  shrinkage = 0.031,
+                                  n.minobsinnode = 10,
+                                  interaction.depth = 4,
+                                  cv.folds = 10)
+
+train_gbm_imp <- varImp(gbm_model_after_training, scale=FALSE)
+print(train_gbm_imp)
+
+plot(train_gbm_imp, top = 20)
 
 #print(caret_gbm_fit)
 #plot(caret_gbm_fit)
@@ -82,6 +96,11 @@ test_preds_with_gbm <- function(gbm_data, num_trees) {
                                     newdata = gbm_data,
                                     n.trees = num_trees,
                                     type = 'response')
+  
+  test_gbm_imp <- varImp(cv.gbm_predictions, scale=FALSE)
+  print(test_gbm_imp)
+  
+  plot(test_gbm_imp, top = 20)
   
   print(LogLossBinary(gbm_data$tcB, cv.gbm_predictions))
   print(data.frame('Actual' = gbm_data$tcB, 'Predicted' = cv.gbm_predictions))
