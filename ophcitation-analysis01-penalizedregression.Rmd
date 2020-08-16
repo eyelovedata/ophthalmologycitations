@@ -92,6 +92,7 @@ testpred=predict(fit, newx = model.matrix(tcB ~ . -pagecount -tc -split, data=df
 
 ```
 
+
 # Make Plots 
 ```{r}
 library(pROC)
@@ -114,4 +115,76 @@ library(precrec)
 ```{r}
 precrec_obj <- evalmod(scores = testpred, labels = df_dev$tcB)
 autoplot(precrec_obj) 
+```
+# Let's add on to the penalized regression with gradient boosted trees here 
+```{r}
+library(gbm)
+```
+
+```{r}
+gbmfit=gbm(tcB~. -tc -pagecount -split, data=df_train, n.trees=1000, interaction.depth=6, distribution="bernoulli", cv.folds=5, n.minobsinnode=3, shrinkage=0.04)
+```
+
+```{r}
+best.iter<-gbm.perf(gbmfit,method="cv")
+print(best.iter)
+summary(gbmfit)
+```
+```{r}
+library(caret)
+```
+```{r}
+set.seed(123)
+fitControl = trainControl(method="cv", number=5, returnResamp = "all")
+
+model2 = train(as.factor(tcB)~. -tc -pagecount -split, data=df_train, method="gbm", distribution="bernoulli", trControl=fitControl, verbose=F, tuneGrid=data.frame(.n.trees=best.iter, .shrinkage=0.01, .interaction.depth=2, .n.minobsinnode=3))
+```
+
+
+```{r}
+nl = nrow(df_train)
+max(0.01, 0.1*min(1, nl/10000)) #hm, can't remember what this was for
+# Max Value for interaction.depth
+floor(sqrt(ncol(df_train)))
+gbmGrid <-  expand.grid(interaction.depth = c(1, 3, 5, 7, 11, 17, 23),
+                    n.trees = (0:50)*30,
+                    shrinkage = seq(.0005, .05,.0005),
+                    n.minobsinnode = c(3,5,7,10,15)) # you can also put something        like c(5, 10, 15, 20)
+
+fitControl <- trainControl(method = "repeatedcv",
+                       repeats = 5,
+                       selectionFunction='best',
+                       savePredictions=TRUE)
+gbmModel=train(as.factor(tcB)~. -tc -pagecount -split, data=df_train, method="gbm", distribution="bernoulli", trControl=fitControl, tuneGrid=gbmGrid, verbose=FALSE, nTrain = round(nrow(df_train) *.8))
+```
+Whew! That took all night to run.
+```{r}
+plot(gbmModel)
+```
+```{r}
+predict(gbmModel$finalModel, newdata=df_dev)
+```
+
+"The final values used for the model were n.trees = 870, interaction.depth = 3, shrinkage
+ = 0.023 and n.minobsinnode = 7."
+ shrinkage interaction.depth n.minobsinnode n.trees     RMSE Rsquared      MAE   RMSESD
+46287     0.023                 3              7     870 54101.97 0.962474 34255.16 17836.16
+      RsquaredSD    MAESD
+46287 0.01725657 6848.102
+
+Okay, lets save these predictions.
+```{r}
+gbmbest=gbm(as.factor(tcB)~. -tc -pagecount -split, data=df_train, distribution="bernoulli", n.trees=870, interaction.depth=3, shrinkage=0.023, n.minobsinnode=7)
+testpred=predict(gbmbest, newdata=df_dev, n.trees=870, interaction.depth=3, shrinkage=0.023, n.minobsinnode=7, type="response")
+```
+
+```{r}
+testpred=predict(gbmfit, df_dev, n.trees=325, interaction.depth=2, shrinkage=0.04, type=
+                  "response")
+```
+
+```{r}
+ROC1 <- roc(df_dev$tcB, testpred, ci=TRUE, ci.alpha=0.95, plot=TRUE, print.auc=TRUE, legacy.axes=TRUE)
+sens.ci <- ci.se(ROC1)
+plot(sens.ci, type="shape", col="lightblue")
 ```
