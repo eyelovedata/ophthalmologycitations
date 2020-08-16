@@ -1,12 +1,14 @@
-setwd('C:\\Users\\veena\\Downloads\\ophthalmologycitations-master')
-df_scopus_csv <- read.csv('dfscopus-2.csv')
+# contains gbm model, nltk+rake analysis, and nltk tokenized keywords from titles and abstracts
+
+setwd('C:\\Users\\veena\\Desktop\\ophthalmology\\csv')
+df_scopus_csv <- read.csv('dfscopus-2_with_nlp_title_and_abstract.csv')
 
 # df cleanup from rmd file
 library(tidyverse)
 df_scopus_csv <-select(df_scopus_csv, -index, -authorlist, -authoridlist, -access.type)
 df_scopus_csv <-filter(df_scopus_csv, !is.na(tc))
 
-quantile(df_scopus_csv$tc, c(0.75))
+quantile(df_scopus_csv$tc, c(0.75)) # 20
 df_scopus_csv$tcB<-ifelse(df_scopus_csv$tc>=20, 1, 0)
 
 colnames(df_scopus_csv)[colSums(is.na(df_scopus_csv)) > 0]
@@ -30,33 +32,59 @@ LogLossBinary = function(actual, predicted, eps = 1e-15) {
 
 library(caret)
 library(e1071)
+library(pROC)
+library(precrec)
 
-# train with train set
-cv.gbmModel = gbm(formula = df_train$tcB ~ . - df_train$tc - df_train$split - df_train$pagecount, data = df_train,
-                  distribution = "bernoulli",
-                  n.trees = 100,
-                  shrinkage = .01,
-                  n.minobsinnode = 20,
-                  cv.folds = 10)
+# define number of trees - keep consistent with train and dev/test
+num_trees_var <- 300
+
+# no need to further tune the hyperparameters - the optimal values from the grid are in the model below
+
+# use caret_gbm_fit final values to create the optimal train gbm model
+# varImp is also no longer needed, since the "hyperpredictors" like Unnamed..0_* are gone
+optimal_gbm_train_model <- gbm(tcB ~ ., 
+                               data=select(df_train, -tc, -split, -pagecount, -X, -Unnamed..0_y, -Unnamed..0_x, -year),
+                               distribution = "bernoulli",
+                               n.trees = 300,
+                               shrinkage = 0.031,
+                               n.minobsinnode = 10,
+                               interaction.depth = 4,
+                               cv.folds = 10)
+
+print(optimal_gbm_train_model)
 
 # functional approach to dev and test set
 test_preds_with_gbm <- function(gbm_data, num_trees) {
-  cv.gbm_predictions <- predict(object = cv.gbmModel,
-                                newdata = gbm_data,
-                                n.trees = num_trees,
-                                type = 'response')
+  cv.gbm_predictions <- predict.gbm(object = optimal_gbm_train_model,
+                                    newdata = gbm_data,
+                                    n.trees = num_trees,
+                                    type = 'response')
   
   print(LogLossBinary(gbm_data$tcB, cv.gbm_predictions))
   print(data.frame('Actual' = gbm_data$tcB, 'Predicted' = cv.gbm_predictions))
   
-  cv.ifelse_preds <- ifelse(cv.gbm_predictions > 0.5, 1, 0)
+  best_tree_for_prediction <- gbm.perf(optimal_gbm_train_model, method='cv')
+  print(best_tree_for_prediction)
+  summary(optimal_gbm_train_model)
   
-  best_tree_for_prediction <- gbm.perf(cv.gbmModel)
+  cv.ifelse_preds <- ifelse(cv.gbm_predictions > quantile(cv.gbm_predictions, c(0.75)), 1, 0)
   
-  # https://stackoverflow.com/questions/38829646/confusion-matrix-of-bsttree-predictions-error-the-data-must-contain-some-leve
-  cm = confusionMatrix(as.factor(gbm_data$tcB), as.factor(cv.ifelse_preds))
-  print(cm)
+  print(table(gbm_data$tcB))
+  print(table(cv.ifelse_preds))
+  
+  roc_graph <- roc(gbm_data$tcB, cv.gbm_predictions,
+                   ci=TRUE, ci.alpha=0.95, plot=TRUE,
+                   print.auc=TRUE, legacy.axes=TRUE)
+  
+  sens.ci <- ci.se(roc_graph)
+  plot(sens.ci, type="shape", col="lightblue")
+  
+  auc_val <- pROC::auc(roc_graph)
+  print(auc_val)
+  
+  precrec_obj <- precrec::evalmod(scores = cv.gbm_predictions, labels = gbm_data$tcB)
+  autoplot(precrec_obj) 
 }
 
-test_preds_with_gbm(df_dev, 100)
-test_preds_with_gbm(df_test, 100)
+test_preds_with_gbm(df_test, num_trees_var)
+
