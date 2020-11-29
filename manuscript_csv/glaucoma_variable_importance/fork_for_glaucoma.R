@@ -6,7 +6,7 @@
 
 # contains gbm model, nltk+rake analysis, and nltk tokenized keywords from titles and abstracts
 
-setwd('C:\\Users\\ynkar\\Desktop\\ophthalmology\\manuscript')
+setwd('C:\\Users\\Veena\\Downloads')
 df_scopus_csv <- read.csv('dfscopus-2_with_title_and_abstract_manuscript.csv')
 
 # df cleanup from rmd file
@@ -54,18 +54,60 @@ library(precrec)
 # and then run the previously defined training set on these 4 columns as a test set
 
 #df_glaucoma_test_set <- select(df_test, 'ik_glaucoma',
- #                              'ak_glaucoma', 'glaucoma_title', 'glaucoma_abstract', 'tcB', 'year')
+#                              'ak_glaucoma', 'glaucoma_title', 'glaucoma_abstract', 'tcB', 'year')
 
 glaucoma_boolean <- dplyr::mutate(df_test, 
                                   glaucoma_indicator=ik_glaucoma + 
                                     ak_glaucoma + glaucoma_title + glaucoma_abstract)
 
+retina_boolean <- dplyr::mutate(df_test,
+                                retina_indicator=ik_retina + ak_retina +
+                                  retina_title + retina_abstract)
+
+cornea_boolean <- dplyr::mutate(df_test,
+                                cornea_indicator=ik_cornea + ak_cornea + cornea)
+
+var_imp_related_fields_boolean <- dplyr::mutate(df_test,
+                                all_related_fields_indicator = ik_glaucoma +
+                                  ak_glaucoma + glaucoma_title + glaucoma_abstract +
+                                  ik_retina + ak_retina +
+                                  retina_title + retina_abstract +
+                                  ik_cornea + ak_cornea + cornea +
+                                  ik_plastic + ik_uveitis + ik_neurology + 
+                                  ik_cornea + ak_cornea + cornea
+                                  )
+
 df_glaucoma_test_set <- filter(glaucoma_boolean, glaucoma_indicator > 0)
 
+df_retina_test_set <- filter(retina_boolean, retina_indicator > 0)
+
+df_cornea_test_set <- filter(cornea_boolean, cornea_indicator > 0)
+
+df_related_fields_test_set <- filter(var_imp_related_fields_boolean, all_related_fields_indicator > 0)
+
+# other, non-glaucoma and retina words
+# ik_plastic - oculoplastics
+# ik_uveitis - uveitis
+# ik_neurology, journal of neuro-ophthalmology - neuro
+# ik_cornea, ak_cornea, cornea - cornea
+
+
+
+
+
 print(df_glaucoma_test_set)
-write.csv(df_glaucoma_test_set, 'C:\\Users\\ynkar\\Desktop\\ophthalmology\\manuscript\\glaucoma_test_set.csv')
+print(df_retina_test_set)
+print(df_cornea_test_set)
+print(df_related_fields_test_set)
+
+write.csv(df_cornea_test_set, 'C:\\Users\\veena\\Desktop\\cornea_test_set.csv')
 
 summary(glaucoma_boolean)
+summary(retina_boolean)
+summary(cornea_boolean)
+summary(var_imp_related_fields_boolean)
+
+new_glaucoma_test_set <- read.csv('glaucoma_test_set.csv')
 
 # https://stackoverflow.com/questions/4131338/is-it-possible-to-have-a-multi-line-comments-in-r
 
@@ -142,4 +184,4 @@ test_preds_with_gbm <- function(gbm_data) {
   autoplot(precrec_obj) 
 }
 
-#test_preds_with_gbm(df_glaucoma_test_set)
+test_preds_with_gbm(df_related_fields_test_set)
